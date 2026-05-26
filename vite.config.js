@@ -9,8 +9,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icon-192.png', 'icon-512.png', 'apple-touch-icon.png'],
       manifest: {
-        name: '법인차량 운행일지',
-        short_name: '운행일지',
+        name: '(주)컴퍼니04-차량운행일지',
+        short_name: '차량운행일지',
         description: '법인차량 운행 기록 관리 시스템',
         theme_color: '#111827',
         background_color: '#F3F4F6',
