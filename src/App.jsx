@@ -39,8 +39,8 @@ function Nav({ view, onAdminClick, onLogoClick }) {
       <button className="nav-logo" onClick={onLogoClick} style={{ background:'none', border:'none', cursor:'pointer', textAlign:'left' }}>
         <div className="nav-logo-icon">🚗</div>
         <div>
-          <div className="nav-logo-text">운행일지</div>
-          <div className="nav-logo-sub">법인차량 관리시스템</div>
+          <div className="nav-logo-text">(주)컴퍼니04</div>
+          <div className="nav-logo-sub">차량운행일지</div>
         </div>
       </button>
       {view !== 'admin' && (
