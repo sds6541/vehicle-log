@@ -484,6 +484,136 @@ function AdminLogin({ onLogin, onBack }) {
   )
 }
 
+// ─── Edit Modal ──────────────────────────────────────────────────────────────
+function EditModal({ record, onSave, onCancel }) {
+  const [form, setForm] = useState({
+    date: record.date || '',
+    driver: record.driver || '',
+    car_num: record.car_num || '',
+    start_time: record.start_time || '',
+    end_time: record.end_time || '',
+    from_location: record.from_location || '',
+    to_location: record.to_location || '',
+    start_km: record.start_km ?? '',
+    end_km: record.end_km ?? '',
+    purpose: record.purpose || '',
+    note: record.note || '',
+    status: record.status || 'done',
+  })
+  const [saving, setSaving] = useState(false)
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }))
+
+  const distance = form.start_km !== '' && form.end_km !== '' &&
+    parseFloat(form.end_km) >= parseFloat(form.start_km)
+    ? (parseFloat(form.end_km) - parseFloat(form.start_km)).toFixed(1)
+    : null
+
+  const handleSave = async () => {
+    setSaving(true)
+    const updates = {
+      ...form,
+      start_km: form.start_km !== '' ? parseFloat(form.start_km) : null,
+      end_km: form.end_km !== '' ? parseFloat(form.end_km) : null,
+      distance: distance ? parseFloat(distance) : null,
+      start_time: form.start_time || null,
+      end_time: form.end_time || null,
+      to_location: form.to_location || null,
+      note: form.note || null,
+    }
+    await onSave(record.id, updates)
+    setSaving(false)
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onCancel}>
+      <div className="modal" style={{ maxWidth:520, width:'100%', maxHeight:'90vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-title" style={{ marginBottom:16 }}>✏️ 운행 기록 수정</div>
+
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div className="section-label">기본 정보</div>
+          <div className="grid-2">
+            <div className="field">
+              <label className="label">날짜</label>
+              <input type="date" className="input" value={form.date} onChange={e => set('date', e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="label">차량번호</label>
+              <input type="text" className="input" value={form.car_num} onChange={e => set('car_num', e.target.value)} />
+            </div>
+          </div>
+          <div className="field">
+            <label className="label">운전자</label>
+            <input type="text" className="input" value={form.driver} onChange={e => set('driver', e.target.value)} />
+          </div>
+
+          <div className="section-label" style={{ marginTop:4 }}>운행 경로</div>
+          <div className="grid-2">
+            <div className="field">
+              <label className="label">출발 시각</label>
+              <input type="time" className="input" value={form.start_time} onChange={e => set('start_time', e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="label">도착 시각</label>
+              <input type="time" className="input" value={form.end_time} onChange={e => set('end_time', e.target.value)} />
+            </div>
+          </div>
+          <div className="grid-2">
+            <div className="field">
+              <label className="label">출발지</label>
+              <input type="text" className="input" value={form.from_location} onChange={e => set('from_location', e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="label">목적지</label>
+              <input type="text" className="input" value={form.to_location} onChange={e => set('to_location', e.target.value)} />
+            </div>
+          </div>
+          <div className="grid-2">
+            <div className="field">
+              <label className="label">출발 km</label>
+              <input type="number" className="input" value={form.start_km} onChange={e => set('start_km', e.target.value)} />
+            </div>
+            <div className="field">
+              <label className="label">도착 km</label>
+              <input type="number" className="input" value={form.end_km} onChange={e => set('end_km', e.target.value)} />
+            </div>
+          </div>
+          {distance !== null && (
+            <div className="distance-badge">📍 주행거리 {distance} km</div>
+          )}
+
+          <div className="section-label" style={{ marginTop:4 }}>운행 목적</div>
+          <div className="field">
+            <label className="label">목적 분류</label>
+            <select className="select" value={form.purpose} onChange={e => set('purpose', e.target.value)}>
+              <option value="">선택하세요</option>
+              {PURPOSES.map(p => <option key={p}>{p}</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">상태</label>
+            <select className="select" value={form.status} onChange={e => set('status', e.target.value)}>
+              <option value="done">완료</option>
+              <option value="driving">운행중</option>
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">비고</label>
+            <input type="text" className="input" placeholder="추가 메모" value={form.note} onChange={e => set('note', e.target.value)} />
+          </div>
+        </div>
+
+        <div className="modal-actions" style={{ marginTop:20 }}>
+          <button className="btn btn-secondary" onClick={onCancel}>취소</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? <><span className="spinner"></span> 저장 중...</> : '저장'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Admin Dashboard ─────────────────────────────────────────────────────────
 function AdminDashboard({ addToast }) {
   const [records, setRecords] = useState([])
@@ -493,6 +623,7 @@ function AdminDashboard({ addToast }) {
   const [filterPurpose, setFilterPurpose] = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [confirmId, setConfirmId] = useState(null)
+  const [editRecord, setEditRecord] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -545,6 +676,17 @@ function AdminDashboard({ addToast }) {
     setConfirmId(null)
   }
 
+  const handleEdit = async (id, updates) => {
+    const { error } = await supabase.from('vehicle_logs').update(updates).eq('id', id)
+    if (!error) {
+      setRecords(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r))
+      addToast('수정되었습니다. ✓', 'success')
+      setEditRecord(null)
+    } else {
+      addToast('수정에 실패했습니다.', 'error')
+    }
+  }
+
   const exportCSV = () => {
     const headers = ['날짜','운전자','차량번호','출발시각','도착시각','출발지','목적지','출발km','도착km','주행거리(km)','운행목적','상태','비고']
     const rows = filtered.map(r => [
@@ -572,6 +714,13 @@ function AdminDashboard({ addToast }) {
           msg="이 운행 기록을 삭제하시겠습니까? 삭제 후 복구할 수 없습니다."
           onConfirm={handleDelete}
           onCancel={() => setConfirmId(null)}
+        />
+      )}
+      {editRecord && (
+        <EditModal
+          record={editRecord}
+          onSave={handleEdit}
+          onCancel={() => setEditRecord(null)}
         />
       )}
 
@@ -663,6 +812,13 @@ function AdminDashboard({ addToast }) {
                         <span className="badge" style={{ background:'#FEF9C3', color:'#854D0E', border:'1px solid #FDE047' }}>운행중</span>
                       )}
                       <span className="record-date">{r.date}</span>
+                      <button
+                        onClick={() => setEditRecord(r)}
+                        title="수정"
+                        style={{ background:'none', border:'none', cursor:'pointer', color:'var(--gray-400)', fontSize:14, padding:'2px 4px', marginLeft:'auto', transition:'color 0.15s' }}
+                        onMouseOver={e => e.target.style.color='var(--blue)'}
+                        onMouseOut={e => e.target.style.color='var(--gray-400)'}
+                      >✏️</button>
                       <button className="record-delete-btn" onClick={() => setConfirmId(r.id)} title="삭제">✕</button>
                     </div>
                     <div className="record-route">
