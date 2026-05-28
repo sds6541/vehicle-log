@@ -5,6 +5,44 @@ import { supabase } from './supabase'
 const ADMIN_PW = import.meta.env.VITE_ADMIN_PASSWORD || 'admin1234'
 const PURPOSES = ['현장방문', '자재구매', '고객미팅', '관공서방문', '직원이동', '차량점검', '기타']
 
+// ─── ORS 도로거리 계산 ───────────────────────────────────────────────────────
+async function getRoadDistance(startCoord, endCoord) {
+  const apiKey = import.meta.env.VITE_ORS_API_KEY
+  if (!apiKey) throw new Error('ORS API 키가 없습니다.')
+  const res = await fetch('https://api.openrouteservice.org/v2/directions/driving-car', {
+    method: 'POST',
+    headers: {
+      'Authorization': apiKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      coordinates: [
+        [startCoord.lng, startCoord.lat],
+        [endCoord.lng, endCoord.lat],
+      ]
+    })
+  })
+  if (!res.ok) throw new Error('거리 계산 실패')
+  const data = await res.json()
+  const meters = data.routes[0].summary.distance
+  return (meters / 1000).toFixed(1) // km 변환
+}
+
+// GPS 현재 위치 가져오기
+function getCurrentPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('GPS를 지원하지 않는 기기입니다.'))
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      err => reject(new Error('위치 정보를 가져올 수 없습니다. GPS를 허용해주세요.')),
+      { enableHighAccuracy: true, timeout: 10000 }
+    )
+  })
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function todayStr() { return new Date().toISOString().split('T')[0] }
 function nowTime() {
@@ -33,7 +71,7 @@ function Toast({ toasts }) {
 }
 
 // ─── Nav ─────────────────────────────────────────────────────────────────────
-function Nav({ view, onAdminClick, onLogoClick }) {
+function Nav({ view, driverName, onAdminClick, onLogoClick, onNameReset }) {
   return (
     <nav className="nav">
       <button className="nav-logo" onClick={onLogoClick} style={{ background:'none', border:'none', cursor:'pointer', textAlign:'left' }}>
@@ -43,16 +81,23 @@ function Nav({ view, onAdminClick, onLogoClick }) {
           <div className="nav-logo-sub">차량운행일지</div>
         </div>
       </button>
-      {view !== 'admin' && (
-        <button className="nav-btn" onClick={onAdminClick}>
-          🔐 관리자
-        </button>
-      )}
-      {view === 'admin' && (
-        <button className="nav-btn" onClick={onLogoClick}>
-          ✏️ 입력하기
-        </button>
-      )}
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        {view !== 'admin' && driverName && (
+          <button className="nav-btn" onClick={onNameReset} title="이름 변경" style={{ fontSize:12, padding:'6px 10px' }}>
+            👤 {driverName}
+          </button>
+        )}
+        {view !== 'admin' && (
+          <button className="nav-btn" onClick={onAdminClick}>
+            🔐 관리자
+          </button>
+        )}
+        {view === 'admin' && (
+          <button className="nav-btn" onClick={onLogoClick}>
+            ✏️ 입력하기
+          </button>
+        )}
+      </div>
     </nav>
   )
 }
@@ -74,10 +119,10 @@ function ConfirmModal({ msg, onConfirm, onCancel }) {
 }
 
 // ─── 출발 입력 폼 ─────────────────────────────────────────────────────────────
-function DepartForm({ addToast, onComplete }) {
+function DepartForm({ addToast, onComplete, driverName }) {
   const [form, setForm] = useState({
     date: todayStr(),
-    driver: '',
+    driver: driverName || '',
     car_num: '',
     start_time: nowTime(),
     from_location: '',
@@ -105,16 +150,28 @@ function DepartForm({ addToast, onComplete }) {
     if (!validate()) { addToast('필수 항목을 모두 입력해주세요.', 'error'); return }
     setSaving(true)
     try {
+      // GPS 좌표 획득
+      let startLat = null, startLng = null
+      try {
+        const pos = await getCurrentPosition()
+        startLat = pos.lat
+        startLng = pos.lng
+      } catch (e) {
+        // GPS 실패해도 저장은 계속 진행
+      }
+
       const payload = {
         ...form,
         start_km: form.start_km ? parseFloat(form.start_km) : null,
         start_time: form.start_time || null,
         note: form.note || null,
-        status: 'driving', // 운행중
+        status: 'driving',
         to_location: null,
         end_time: null,
         end_km: null,
         distance: null,
+        start_lat: startLat,
+        start_lng: startLng,
       }
       const { data, error } = await supabase.from('vehicle_logs').insert([payload]).select().single()
       if (error) throw error
@@ -152,8 +209,9 @@ function DepartForm({ addToast, onComplete }) {
               </div>
             </div>
             <div className="field">
-              <label className="label label-required">운전자</label>
-              <input type="text" className={ic('driver')} placeholder="홍길동" value={form.driver} onChange={e => set('driver', e.target.value)} />
+              <label className="label">운전자</label>
+              <input type="text" className="input" value={form.driver} readOnly
+                style={{ background:'var(--gray-50)', color:'var(--gray-500)', cursor:'not-allowed' }} />
             </div>
 
             <hr className="divider" />
@@ -217,10 +275,13 @@ function ArriveForm({ record, addToast, onDone }) {
     setErrors(p => ({ ...p, [k]: false }))
   }
 
-  const distance = form.end_km !== '' && record.start_km != null &&
+  const kmDistance = form.end_km !== '' && record.start_km != null &&
     parseFloat(form.end_km) >= record.start_km
     ? (parseFloat(form.end_km) - record.start_km).toFixed(1)
     : null
+
+  const [gpsDistance, setGpsDistance] = useState(null)
+  const [gpsLoading, setGpsLoading] = useState(false)
 
   const validate = () => {
     const errs = {}
@@ -233,11 +294,36 @@ function ArriveForm({ record, addToast, onDone }) {
     if (!validate()) { addToast('목적지를 입력해주세요.', 'error'); return }
     setSaving(true)
     try {
+      let finalDistance = kmDistance ? parseFloat(kmDistance) : (gpsDistance ? parseFloat(gpsDistance) : null)
+      let endLat = null, endLng = null
+
+      // 출발 GPS 좌표가 있으면 도착 GPS 받아서 ORS 거리 계산
+      if (record.start_lat && record.start_lng) {
+        try {
+          setGpsLoading(true)
+          const endPos = await getCurrentPosition()
+          endLat = endPos.lat
+          endLng = endPos.lng
+          const roadDist = await getRoadDistance(
+            { lat: record.start_lat, lng: record.start_lng },
+            { lat: endLat, lng: endLng }
+          )
+          if (!kmDistance) finalDistance = parseFloat(roadDist)
+          setGpsDistance(roadDist)
+        } catch (e) {
+          // GPS/ORS 실패해도 km 입력값으로 저장
+        } finally {
+          setGpsLoading(false)
+        }
+      }
+
       const updates = {
         end_time: form.end_time || null,
         to_location: form.to_location,
         end_km: form.end_km ? parseFloat(form.end_km) : null,
-        distance: distance ? parseFloat(distance) : null,
+        distance: finalDistance,
+        end_lat: endLat,
+        end_lng: endLng,
         status: 'done',
       }
       const { error } = await supabase.from('vehicle_logs').update(updates).eq('id', record.id)
@@ -300,20 +386,31 @@ function ArriveForm({ record, addToast, onDone }) {
             </div>
 
             <div className="field">
-              <label className="label">도착 계기판 km</label>
-              <input type="number" className="input" placeholder="예: 15487" min="0" value={form.end_km} onChange={e => set('end_km', e.target.value)} />
+              <label className="label">도착 계기판 km <span style={{ color:'var(--gray-400)', fontWeight:400 }}>(선택 - GPS로 자동계산)</span></label>
+              <input type="number" className="input" placeholder="예: 15487 (입력 안해도 됩니다)" min="0" value={form.end_km} onChange={e => set('end_km', e.target.value)} />
             </div>
 
-            {distance !== null && (
+            {kmDistance !== null && (
               <div className="distance-badge">
-                📍 주행거리 {distance} km
+                📍 계기판 기준 {kmDistance} km
+              </div>
+            )}
+            {gpsDistance !== null && !kmDistance && (
+              <div className="distance-badge" style={{ background:'var(--blue-light)', borderColor:'var(--blue-border)', color:'var(--blue)' }}>
+                🛰 GPS 기준 {gpsDistance} km
+              </div>
+            )}
+            {gpsLoading && (
+              <div style={{ fontSize:13, color:'var(--gray-500)', display:'flex', alignItems:'center', gap:6 }}>
+                <span className="spinner" style={{ borderColor:'rgba(0,0,0,0.1)', borderTopColor:'var(--blue)' }}></span>
+                GPS로 주행거리 계산 중...
               </div>
             )}
           </div>
         </div>
         <div style={{ padding:'0 1.5rem 1.5rem' }}>
           <button className="btn btn-primary btn-full" onClick={handleSave} disabled={saving}>
-            {saving ? <><span className="spinner"></span> 저장 중...</> : '✅ 도착 완료'}
+            {saving ? <><span className="spinner"></span> {gpsLoading ? 'GPS 거리 계산 중...' : '저장 중...'}</> : '✅ 도착 완료'}
           </button>
         </div>
       </div>
@@ -322,10 +419,9 @@ function ArriveForm({ record, addToast, onDone }) {
 }
 
 // ─── 운행중 기록 목록 (도착 완료 대기) ───────────────────────────────────────
-function DrivingList({ addToast, onSelect, onNewDepart }) {
+function DrivingList({ addToast, onSelect, onNewDepart, driverName }) {
   const [records, setRecords] = useState([])
   const [loading, setLoading] = useState(true)
-  const [driver, setDriver] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -333,16 +429,15 @@ function DrivingList({ addToast, onSelect, onNewDepart }) {
       .from('vehicle_logs')
       .select('*')
       .eq('status', 'driving')
+      .eq('driver', driverName)
       .order('created_at', { ascending: false })
     setRecords(data || [])
     setLoading(false)
-  }, [])
+  }, [driverName])
 
   useEffect(() => { load() }, [load])
 
-  const filtered = driver
-    ? records.filter(r => r.driver?.includes(driver) || r.car_num?.includes(driver))
-    : records
+  const filtered = records
 
   return (
     <div className="page">
@@ -395,14 +490,14 @@ function DrivingList({ addToast, onSelect, onNewDepart }) {
 }
 
 // ─── 메인 입력 화면 (탭) ──────────────────────────────────────────────────────
-function LogMain({ addToast }) {
+function LogMain({ addToast, driverName }) {
   const [tab, setTab] = useState('depart') // 'depart' | 'arrive'
   const [departedRecord, setDepartedRecord] = useState(null)
   const [selectedRecord, setSelectedRecord] = useState(null)
   const [drivingCount, setDrivingCount] = useState(0)
   const [checked, setChecked] = useState(false)
 
-  // 앱 열릴 때 운행중 기록 확인 → 있으면 도착완료 탭으로 자동 이동
+  // 앱 열릴 때 본인 운행중 기록 확인 → 있으면 도착완료 탭으로 자동 이동
   useEffect(() => {
     if (checked) return
     setChecked(true)
@@ -410,13 +505,14 @@ function LogMain({ addToast }) {
       .from('vehicle_logs')
       .select('id', { count: 'exact' })
       .eq('status', 'driving')
+      .eq('driver', driverName)
       .then(({ count }) => {
         if (count && count > 0) {
           setDrivingCount(count)
           setTab('arrive')
         }
       })
-  }, [checked])
+  }, [checked, driverName])
 
   if (departedRecord) {
     return <ArriveForm record={departedRecord} addToast={addToast} onDone={() => { setDepartedRecord(null); setTab('arrive') }} />
@@ -484,10 +580,10 @@ function LogMain({ addToast }) {
       )}
 
       {tab === 'depart' && (
-        <DepartForm addToast={addToast} onComplete={rec => { setDepartedRecord(rec); setDrivingCount(p => p+1) }} />
+        <DepartForm addToast={addToast} driverName={driverName} onComplete={rec => { setDepartedRecord(rec); setDrivingCount(p => p+1) }} />
       )}
       {tab === 'arrive' && (
-        <DrivingList addToast={addToast} onSelect={rec => setSelectedRecord(rec)} onNewDepart={() => setTab('depart')} />
+        <DrivingList addToast={addToast} driverName={driverName} onSelect={rec => setSelectedRecord(rec)} onNewDepart={() => setTab('depart')} />
       )}
     </div>
   )
@@ -893,10 +989,57 @@ function AdminDashboard({ addToast }) {
   )
 }
 
+// ─── 이름 등록 화면 ──────────────────────────────────────────────────────────
+function NameSetup({ onDone }) {
+  const [name, setName] = useState('')
+  const [error, setError] = useState(false)
+
+  const handleSave = () => {
+    if (!name.trim()) { setError(true); return }
+    localStorage.setItem('vehlog_driver_name', name.trim())
+    onDone(name.trim())
+  }
+
+  return (
+    <div className="login-wrap">
+      <div className="login-card">
+        <div className="card">
+          <div className="card-body">
+            <div className="login-icon">👤</div>
+            <div className="page-title" style={{ fontSize:20, marginBottom:4 }}>이름 등록</div>
+            <div className="page-desc" style={{ marginBottom:'1.5rem' }}>
+              본인 이름을 입력해주세요.<br />운행 기록에 자동으로 사용됩니다.
+            </div>
+            <div className="form-section">
+              <div className="field">
+                <label className="label">이름</label>
+                <input
+                  type="text"
+                  className={error ? 'input error' : 'input'}
+                  placeholder="홍길동"
+                  value={name}
+                  onChange={e => { setName(e.target.value); setError(false) }}
+                  onKeyDown={e => e.key === 'Enter' && handleSave()}
+                  autoFocus
+                />
+                {error && <span className="error-msg">이름을 입력해주세요.</span>}
+              </div>
+              <button className="btn btn-primary btn-full" onClick={handleSave}>
+                시작하기
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── App Root ─────────────────────────────────────────────────────────────────
 export default function App() {
   const [view, setView] = useState('form')
   const [toasts, setToasts] = useState([])
+  const [driverName, setDriverName] = useState(() => localStorage.getItem('vehlog_driver_name') || '')
 
   const addToast = useCallback((msg, type = 'success') => {
     const id = Date.now()
@@ -904,14 +1047,24 @@ export default function App() {
     setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500)
   }, [])
 
+  // 이름 미등록시 등록 화면
+  if (!driverName) {
+    return <NameSetup onDone={name => setDriverName(name)} />
+  }
+
   return (
     <>
       <Nav
         view={view}
+        driverName={driverName}
         onAdminClick={() => setView('admin-login')}
         onLogoClick={() => setView('form')}
+        onNameReset={() => {
+          localStorage.removeItem('vehlog_driver_name')
+          setDriverName('')
+        }}
       />
-      {view === 'form' && <LogMain addToast={addToast} />}
+      {view === 'form' && <LogMain addToast={addToast} driverName={driverName} />}
       {view === 'admin-login' && (
         <AdminLogin
           onLogin={() => setView('admin')}
