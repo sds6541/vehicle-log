@@ -5,6 +5,37 @@ import { supabase } from './supabase'
 const ADMIN_PW = import.meta.env.VITE_ADMIN_PASSWORD || 'admin1234'
 const PURPOSES = ['현장방문', '자재구매', '고객미팅', '관공서방문', '직원이동', '차량점검', '기타']
 
+// ─── GPS 현재 위치 가져오기 ──────────────────────────────────────────────────
+function getCurrentPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('GPS 미지원'))
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      err => reject(err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
+  })
+}
+
+// ORS 도로거리 계산
+async function getRoadDistance(startCoord, endCoord) {
+  const apiKey = import.meta.env.VITE_ORS_API_KEY
+  if (!apiKey) throw new Error('ORS API 키 없음')
+  const res = await fetch('https://api.openrouteservice.org/v2/directions/driving-car', {
+    method: 'POST',
+    headers: { 'Authorization': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      coordinates: [[startCoord.lng, startCoord.lat], [endCoord.lng, endCoord.lat]]
+    })
+  })
+  if (!res.ok) throw new Error('거리 계산 실패')
+  const data = await res.json()
+  return (data.routes[0].summary.distance / 1000).toFixed(1)
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function todayStr() { return new Date().toISOString().split('T')[0] }
 function nowTime() {
@@ -112,6 +143,17 @@ function DepartForm({ addToast, onComplete, driverName }) {
     if (!validate()) { addToast('필수 항목을 모두 입력해주세요.', 'error'); return }
     setSaving(true)
     try {
+      // 출발 GPS 좌표 미리 받아두기 (백그라운드, 실패해도 무관)
+      let startLat = null, startLng = null
+      try {
+        const pos = await Promise.race([
+          getCurrentPosition(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))
+        ])
+        startLat = pos.lat
+        startLng = pos.lng
+      } catch (e) {}
+
       const payload = {
         ...form,
         start_km: form.start_km ? parseFloat(form.start_km) : null,
@@ -122,6 +164,8 @@ function DepartForm({ addToast, onComplete, driverName }) {
         end_time: null,
         end_km: null,
         distance: null,
+        start_lat: startLat,
+        start_lng: startLng,
       }
       const { data, error } = await supabase.from('vehicle_logs').insert([payload]).select().single()
       if (error) throw error
@@ -219,6 +263,26 @@ function ArriveForm({ record, addToast, onDone }) {
   })
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
+  const [endCoord, setEndCoord] = useState(null)
+  const [gpsStatus, setGpsStatus] = useState('pending') // pending | ok | fail
+  const [gpsDistance, setGpsDistance] = useState(null)
+
+  // 폼 열리자마자 GPS 좌표 미리 수집
+  useEffect(() => {
+    getCurrentPosition()
+      .then(pos => {
+        setEndCoord(pos)
+        setGpsStatus('ok')
+        // 출발 좌표 있으면 바로 거리 계산
+        if (record.start_lat && record.start_lng) {
+          getRoadDistance(
+            { lat: record.start_lat, lng: record.start_lng },
+            pos
+          ).then(dist => setGpsDistance(dist)).catch(() => {})
+        }
+      })
+      .catch(() => setGpsStatus('fail'))
+  }, [])
 
   const set = (k, v) => {
     setForm(p => ({ ...p, [k]: v }))
@@ -229,6 +293,8 @@ function ArriveForm({ record, addToast, onDone }) {
     parseFloat(form.end_km) >= record.start_km
     ? (parseFloat(form.end_km) - record.start_km).toFixed(1)
     : null
+
+  const finalDistance = kmDistance ? parseFloat(kmDistance) : (gpsDistance ? parseFloat(gpsDistance) : null)
 
   const validate = () => {
     const errs = {}
@@ -245,7 +311,9 @@ function ArriveForm({ record, addToast, onDone }) {
         end_time: form.end_time || null,
         to_location: form.to_location,
         end_km: form.end_km ? parseFloat(form.end_km) : null,
-        distance: kmDistance ? parseFloat(kmDistance) : null,
+        distance: finalDistance,
+        end_lat: endCoord?.lat || null,
+        end_lng: endCoord?.lng || null,
         status: 'done',
       }
       const { error } = await supabase.from('vehicle_logs').update(updates).eq('id', record.id)
@@ -307,14 +375,32 @@ function ArriveForm({ record, addToast, onDone }) {
               </div>
             </div>
 
+            {/* GPS 상태 표시 */}
+            {gpsStatus === 'pending' && (
+              <div style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, color:'var(--gray-500)', padding:'8px 12px', background:'var(--gray-50)', borderRadius:'var(--r-sm)' }}>
+                <span className="spinner" style={{ borderColor:'rgba(0,0,0,0.1)', borderTopColor:'var(--blue)', width:14, height:14 }}></span>
+                GPS 위치 확인 중...
+              </div>
+            )}
+            {gpsStatus === 'ok' && gpsDistance && !kmDistance && (
+              <div className="distance-badge" style={{ background:'var(--blue-light)', borderColor:'var(--blue-border)', color:'var(--blue)' }}>
+                🛰 GPS 자동계산 {gpsDistance} km
+              </div>
+            )}
+            {gpsStatus === 'fail' && (
+              <div style={{ fontSize:13, color:'var(--amber)', padding:'8px 12px', background:'var(--amber-light)', borderRadius:'var(--r-sm)' }}>
+                ⚠️ GPS 사용 불가 — 계기판 km를 직접 입력해주세요.
+              </div>
+            )}
+
             <div className="field">
-              <label className="label">도착 계기판 km <span style={{ color:'var(--gray-400)', fontWeight:400 }}>(선택 - GPS로 자동계산)</span></label>
-              <input type="number" className="input" placeholder="예: 15487 (입력 안해도 됩니다)" min="0" value={form.end_km} onChange={e => set('end_km', e.target.value)} />
+              <label className="label">도착 계기판 km <span style={{ color:'var(--gray-400)', fontWeight:400 }}>(GPS 자동계산 또는 직접 입력)</span></label>
+              <input type="number" className="input" placeholder="예: 15487" min="0" value={form.end_km} onChange={e => set('end_km', e.target.value)} />
             </div>
 
             {kmDistance !== null && (
               <div className="distance-badge">
-                📍 주행거리 {kmDistance} km
+                📍 계기판 기준 {kmDistance} km
               </div>
             )}
           </div>
