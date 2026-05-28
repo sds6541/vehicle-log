@@ -5,44 +5,6 @@ import { supabase } from './supabase'
 const ADMIN_PW = import.meta.env.VITE_ADMIN_PASSWORD || 'admin1234'
 const PURPOSES = ['현장방문', '자재구매', '고객미팅', '관공서방문', '직원이동', '차량점검', '기타']
 
-// ─── ORS 도로거리 계산 ───────────────────────────────────────────────────────
-async function getRoadDistance(startCoord, endCoord) {
-  const apiKey = import.meta.env.VITE_ORS_API_KEY
-  if (!apiKey) throw new Error('ORS API 키가 없습니다.')
-  const res = await fetch('https://api.openrouteservice.org/v2/directions/driving-car', {
-    method: 'POST',
-    headers: {
-      'Authorization': apiKey,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      coordinates: [
-        [startCoord.lng, startCoord.lat],
-        [endCoord.lng, endCoord.lat],
-      ]
-    })
-  })
-  if (!res.ok) throw new Error('거리 계산 실패')
-  const data = await res.json()
-  const meters = data.routes[0].summary.distance
-  return (meters / 1000).toFixed(1) // km 변환
-}
-
-// GPS 현재 위치 가져오기
-function getCurrentPosition() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('GPS를 지원하지 않는 기기입니다.'))
-      return
-    }
-    navigator.geolocation.getCurrentPosition(
-      pos => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      err => reject(new Error('위치 정보를 가져올 수 없습니다. GPS를 허용해주세요.')),
-      { enableHighAccuracy: true, timeout: 10000 }
-    )
-  })
-}
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function todayStr() { return new Date().toISOString().split('T')[0] }
 function nowTime() {
@@ -150,16 +112,6 @@ function DepartForm({ addToast, onComplete, driverName }) {
     if (!validate()) { addToast('필수 항목을 모두 입력해주세요.', 'error'); return }
     setSaving(true)
     try {
-      // GPS 좌표 획득
-      let startLat = null, startLng = null
-      try {
-        const pos = await getCurrentPosition()
-        startLat = pos.lat
-        startLng = pos.lng
-      } catch (e) {
-        // GPS 실패해도 저장은 계속 진행
-      }
-
       const payload = {
         ...form,
         start_km: form.start_km ? parseFloat(form.start_km) : null,
@@ -170,8 +122,6 @@ function DepartForm({ addToast, onComplete, driverName }) {
         end_time: null,
         end_km: null,
         distance: null,
-        start_lat: startLat,
-        start_lng: startLng,
       }
       const { data, error } = await supabase.from('vehicle_logs').insert([payload]).select().single()
       if (error) throw error
@@ -280,9 +230,6 @@ function ArriveForm({ record, addToast, onDone }) {
     ? (parseFloat(form.end_km) - record.start_km).toFixed(1)
     : null
 
-  const [gpsDistance, setGpsDistance] = useState(null)
-  const [gpsLoading, setGpsLoading] = useState(false)
-
   const validate = () => {
     const errs = {}
     if (!form.to_location?.trim()) errs.to_location = true
@@ -294,7 +241,6 @@ function ArriveForm({ record, addToast, onDone }) {
     if (!validate()) { addToast('목적지를 입력해주세요.', 'error'); return }
     setSaving(true)
     try {
-      // 1단계: 먼저 저장
       const updates = {
         end_time: form.end_time || null,
         to_location: form.to_location,
@@ -306,27 +252,6 @@ function ArriveForm({ record, addToast, onDone }) {
       if (error) throw error
       addToast('운행일지 완료! ✓', 'success')
       onDone()
-
-      // 2단계: 저장 완료 후 백그라운드에서 GPS 거리 계산 후 업데이트
-      if (record.start_lat && record.start_lng && !kmDistance) {
-        try {
-          const endPos = await Promise.race([
-            getCurrentPosition(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
-          ])
-          const roadDist = await getRoadDistance(
-            { lat: record.start_lat, lng: record.start_lng },
-            { lat: endPos.lat, lng: endPos.lng }
-          )
-          await supabase.from('vehicle_logs').update({
-            distance: parseFloat(roadDist),
-            end_lat: endPos.lat,
-            end_lng: endPos.lng,
-          }).eq('id', record.id)
-        } catch (e) {
-          // GPS 실패 무시
-        }
-      }
     } catch (e) {
       addToast('저장에 실패했습니다. 다시 시도해주세요.', 'error')
       console.error(e)
@@ -389,25 +314,14 @@ function ArriveForm({ record, addToast, onDone }) {
 
             {kmDistance !== null && (
               <div className="distance-badge">
-                📍 계기판 기준 {kmDistance} km
-              </div>
-            )}
-            {gpsDistance !== null && !kmDistance && (
-              <div className="distance-badge" style={{ background:'var(--blue-light)', borderColor:'var(--blue-border)', color:'var(--blue)' }}>
-                🛰 GPS 기준 {gpsDistance} km
-              </div>
-            )}
-            {gpsLoading && (
-              <div style={{ fontSize:13, color:'var(--gray-500)', display:'flex', alignItems:'center', gap:6 }}>
-                <span className="spinner" style={{ borderColor:'rgba(0,0,0,0.1)', borderTopColor:'var(--blue)' }}></span>
-                GPS로 주행거리 계산 중...
+                📍 주행거리 {kmDistance} km
               </div>
             )}
           </div>
         </div>
         <div style={{ padding:'0 1.5rem 1.5rem' }}>
           <button className="btn btn-primary btn-full" onClick={handleSave} disabled={saving}>
-            {saving ? <><span className="spinner"></span> {gpsLoading ? 'GPS 거리 계산 중...' : '저장 중...'}</> : '✅ 도착 완료'}
+            {saving ? <><span className="spinner"></span> 저장 중...</> : '✅ 도착 완료'}
           </button>
         </div>
       </div>
