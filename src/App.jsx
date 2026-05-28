@@ -399,12 +399,30 @@ function LogMain({ addToast }) {
   const [tab, setTab] = useState('depart') // 'depart' | 'arrive'
   const [departedRecord, setDepartedRecord] = useState(null)
   const [selectedRecord, setSelectedRecord] = useState(null)
+  const [drivingCount, setDrivingCount] = useState(0)
+  const [checked, setChecked] = useState(false)
+
+  // 앱 열릴 때 운행중 기록 확인 → 있으면 도착완료 탭으로 자동 이동
+  useEffect(() => {
+    if (checked) return
+    setChecked(true)
+    supabase
+      .from('vehicle_logs')
+      .select('id', { count: 'exact' })
+      .eq('status', 'driving')
+      .then(({ count }) => {
+        if (count && count > 0) {
+          setDrivingCount(count)
+          setTab('arrive')
+        }
+      })
+  }, [checked])
 
   if (departedRecord) {
     return <ArriveForm record={departedRecord} addToast={addToast} onDone={() => { setDepartedRecord(null); setTab('arrive') }} />
   }
   if (selectedRecord) {
-    return <ArriveForm record={selectedRecord} addToast={addToast} onDone={() => { setSelectedRecord(null); setTab('arrive') }} />
+    return <ArriveForm record={selectedRecord} addToast={addToast} onDone={() => { setSelectedRecord(null); setDrivingCount(p => Math.max(0, p-1)) }} />
   }
 
   return (
@@ -428,15 +446,45 @@ function LogMain({ addToast }) {
             flex:1, height:48, border:'none', background:'none', fontSize:14, fontWeight: tab==='arrive' ? 700 : 400,
             color: tab==='arrive' ? 'var(--blue)' : 'var(--gray-500)',
             borderBottom: tab==='arrive' ? '2px solid var(--blue)' : '2px solid transparent',
-            cursor:'pointer', fontFamily:'inherit'
+            cursor:'pointer', fontFamily:'inherit', position:'relative'
           }}
         >
           ✅ 도착 완료
+          {drivingCount > 0 && (
+            <span style={{
+              position:'absolute', top:8, right:16,
+              background:'var(--red)', color:'white',
+              fontSize:11, fontWeight:700, borderRadius:'100px',
+              padding:'1px 6px', lineHeight:'16px'
+            }}>{drivingCount}</span>
+          )}
         </button>
       </div>
 
+      {/* 미완료 운행 배너 */}
+      {tab === 'depart' && drivingCount > 0 && (
+        <div style={{
+          background:'#FEF9C3', borderBottom:'1px solid #FDE047',
+          padding:'10px 16px', display:'flex', alignItems:'center', justifyContent:'space-between'
+        }}>
+          <span style={{ fontSize:13, color:'#854D0E', fontWeight:500 }}>
+            ⚠️ 도착 완료 안 된 운행이 {drivingCount}건 있습니다
+          </span>
+          <button
+            onClick={() => setTab('arrive')}
+            style={{
+              background:'#854D0E', color:'white', border:'none',
+              borderRadius:6, padding:'5px 12px', fontSize:12,
+              fontWeight:600, cursor:'pointer', fontFamily:'inherit'
+            }}
+          >
+            완료하기 →
+          </button>
+        </div>
+      )}
+
       {tab === 'depart' && (
-        <DepartForm addToast={addToast} onComplete={rec => setDepartedRecord(rec)} />
+        <DepartForm addToast={addToast} onComplete={rec => { setDepartedRecord(rec); setDrivingCount(p => p+1) }} />
       )}
       {tab === 'arrive' && (
         <DrivingList addToast={addToast} onSelect={rec => setSelectedRecord(rec)} onNewDepart={() => setTab('depart')} />
