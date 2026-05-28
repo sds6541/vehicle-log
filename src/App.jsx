@@ -294,45 +294,39 @@ function ArriveForm({ record, addToast, onDone }) {
     if (!validate()) { addToast('목적지를 입력해주세요.', 'error'); return }
     setSaving(true)
     try {
-      let finalDistance = kmDistance ? parseFloat(kmDistance) : null
-      let endLat = null, endLng = null
-
-      // GPS + ORS 거리 계산 (백그라운드로 처리, 실패해도 저장 진행)
-      if (record.start_lat && record.start_lng) {
-        try {
-          setGpsLoading(true)
-          const endPos = await Promise.race([
-            getCurrentPosition(),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
-          ])
-          endLat = endPos.lat
-          endLng = endPos.lng
-          const roadDist = await getRoadDistance(
-            { lat: record.start_lat, lng: record.start_lng },
-            { lat: endLat, lng: endLng }
-          )
-          if (!kmDistance) finalDistance = parseFloat(roadDist)
-          setGpsDistance(roadDist)
-        } catch (e) {
-          // GPS/ORS 실패 무시하고 저장 진행
-        } finally {
-          setGpsLoading(false)
-        }
-      }
-
+      // 1단계: 먼저 저장
       const updates = {
         end_time: form.end_time || null,
         to_location: form.to_location,
         end_km: form.end_km ? parseFloat(form.end_km) : null,
-        distance: finalDistance,
-        end_lat: endLat,
-        end_lng: endLng,
+        distance: kmDistance ? parseFloat(kmDistance) : null,
         status: 'done',
       }
       const { error } = await supabase.from('vehicle_logs').update(updates).eq('id', record.id)
       if (error) throw error
       addToast('운행일지 완료! ✓', 'success')
       onDone()
+
+      // 2단계: 저장 완료 후 백그라운드에서 GPS 거리 계산 후 업데이트
+      if (record.start_lat && record.start_lng && !kmDistance) {
+        try {
+          const endPos = await Promise.race([
+            getCurrentPosition(),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000))
+          ])
+          const roadDist = await getRoadDistance(
+            { lat: record.start_lat, lng: record.start_lng },
+            { lat: endPos.lat, lng: endPos.lng }
+          )
+          await supabase.from('vehicle_logs').update({
+            distance: parseFloat(roadDist),
+            end_lat: endPos.lat,
+            end_lng: endPos.lng,
+          }).eq('id', record.id)
+        } catch (e) {
+          // GPS 실패 무시
+        }
+      }
     } catch (e) {
       addToast('저장에 실패했습니다. 다시 시도해주세요.', 'error')
       console.error(e)
