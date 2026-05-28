@@ -446,10 +446,7 @@ function DrivingList({ addToast, onSelect, onNewDepart, driverName }) {
         <div className="page-desc">운행 중인 기록을 선택해주세요.</div>
       </div>
 
-      <div style={{ marginBottom: 12 }}>
-        <input type="text" className="input" placeholder="이름 또는 차량번호로 검색"
-          value={driver} onChange={e => setDriver(e.target.value)} />
-      </div>
+
 
       {loading ? (
         <div className="empty"><div className="empty-icon">⏳</div><div className="empty-text">불러오는 중...</div></div>
