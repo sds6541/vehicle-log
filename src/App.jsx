@@ -224,7 +224,7 @@ function DepartForm({ addToast, onComplete, driverName }) {
 
             <div className="field">
               <label className="label">출발 계기판 km</label>
-              <input type="number" className={errors.end_km ? 'input error' : 'input'} placeholder="예: 15487" min="0" value={form.end_km} onChange={e => set('end_km', e.target.value)} />
+              <input type="number" className="input" placeholder="예: 15420" min="0" value={form.start_km} onChange={e => set('start_km', e.target.value)} />
             </div>
 
             <hr className="divider" />
@@ -305,7 +305,7 @@ function ArriveForm({ record, addToast, onDone }) {
 }
 
   const handleSave = async () => {
-    if (!validate()) { addToast('목적지를 입력해주세요.', 'error'); return }
+    if (!validate()) { addToast(!form.to_location?.trim() ? '목적지를 입력해주세요.' : '계기판 km를 입력해주세요.', 'error'); return }
     setSaving(true)
     try {
       const updates = {
@@ -396,7 +396,7 @@ function ArriveForm({ record, addToast, onDone }) {
 
             <div className="field">
               <label className="label">도착 계기판 km <span style={{ color:'var(--gray-400)', fontWeight:400 }}>(GPS 자동계산 또는 직접 입력)</span></label>
-              <input type="number" className="input" placeholder="예: 15487" min="0" value={form.end_km} onChange={e => set('end_km', e.target.value)} />
+              <input type="number" className={errors.end_km ? 'input error' : 'input'} placeholder="예: 15487" min="0" value={form.end_km} onChange={e => set('end_km', e.target.value)} />
             </div>
 
             {kmDistance !== null && (
