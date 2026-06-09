@@ -299,7 +299,7 @@ function ArriveForm({ record, addToast, onDone }) {
  const validate = () => {
   const errs = {}
   if (!form.to_location?.trim()) errs.to_location = true
-  if (gpsStatus === 'fail' && !form.end_km) errs.end_km = true
+  if (!form.end_km && !gpsDistance) errs.end_km = true
   setErrors(errs)
   return Object.keys(errs).length === 0
 }
