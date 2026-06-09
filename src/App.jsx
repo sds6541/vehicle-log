@@ -195,7 +195,7 @@ function DepartForm({ addToast, onComplete, driverName }) {
             <div className="grid-2">
               <div className="field">
                 <label className="label label-required">날짜</label>
-                <input type="date" className={ic('date')} value={form.date} onChange={e => set('date', e.target.value)} />
+                <input type="date" className={ic('date')} value={form.date} min={todayStr()} max={todayStr()} onChange={e => set('date', e.target.value)} />
               </div>
               <div className="field">
                 <label className="label label-required">차량번호</label>
