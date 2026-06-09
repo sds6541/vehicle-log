@@ -388,7 +388,7 @@ function ArriveForm({ record, addToast, onDone }) {
                 🛰 GPS 자동계산 {gpsDistance} km
               </div>
             )}
-            {gpsStatus === 'fail' && (
+            {!gpsDistance && gpsStatus !== 'pending' && (
               <div style={{ fontSize:13, color:'var(--amber)', padding:'8px 12px', background:'var(--amber-light)', borderRadius:'var(--r-sm)' }}>
                 ⚠️ GPS 사용 불가 — 계기판 km를 직접 입력해주세요.
               </div>
