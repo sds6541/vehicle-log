@@ -294,7 +294,8 @@ function ArriveForm({ record, addToast, onDone }) {
     parseFloat(form.end_km) >= record.start_km
     ? (parseFloat(form.end_km) - record.start_km).toFixed(1)
     : null
-
+const validGpsDistance = gpsDistance && parseFloat(gpsDistance) > 0
+  
   const finalDistance = kmDistance ? parseFloat(kmDistance) : (validGpsDistance ? parseFloat(gpsDistance) : null)
 
  const validate = () => {
