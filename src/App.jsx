@@ -290,16 +290,17 @@ function ArriveForm({ record, addToast, onDone }) {
   }
 
   const kmDistance = form.end_km !== '' && record.start_km != null &&
+    const kmDistance = form.end_km !== '' && record.start_km != null &&
     parseFloat(form.end_km) >= record.start_km
     ? (parseFloat(form.end_km) - record.start_km).toFixed(1)
     : null
 
-  const finalDistance = kmDistance ? parseFloat(kmDistance) : (gpsDistance ? parseFloat(gpsDistance) : null)
+  const finalDistance = kmDistance ? parseFloat(kmDistance) : (validGpsDistance ? parseFloat(gpsDistance) : null)
 
  const validate = () => {
   const errs = {}
   if (!form.to_location?.trim()) errs.to_location = true
-  if (!form.end_km && !gpsDistance) errs.end_km = true
+  if (!form.end_km && !validGpsDistance) errs.end_km = true
   setErrors(errs)
   return Object.keys(errs).length === 0
 }
