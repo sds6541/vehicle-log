@@ -764,6 +764,8 @@ function AdminDashboard({ addToast }) {
   const [filterStatus, setFilterStatus] = useState('')
   const [confirmId, setConfirmId] = useState(null)
   const [editRecord, setEditRecord] = useState(null)
+  const [statsTab, setStatsTab] = useState('vehicle')
+  const [statsMonth, setStatsMonth] = useState(() => new Date().toISOString().substring(0,7))
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -896,6 +898,91 @@ function AdminDashboard({ addToast }) {
           <div className="stat-value">{fmtNum(totalKm)}<span style={{ fontSize:14, fontWeight:500, color:'var(--gray-500)', marginLeft:4 }}>km</span></div>
           <div className="stat-sub">누적 합계</div>
         </div>
+      </div>
+
+      {/* 통계 요약 */}
+      <div style={{ marginBottom:'1.5rem' }}>
+        <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+          <button
+            onClick={() => setStatsTab('vehicle')}
+            style={{
+              padding:'6px 16px', borderRadius:'var(--r-sm)', fontSize:13, fontWeight:600,
+              border:'1.5px solid', cursor:'pointer', fontFamily:'inherit',
+              background: statsTab==='vehicle' ? 'var(--blue)' : 'var(--white)',
+              color: statsTab==='vehicle' ? 'white' : 'var(--gray-600)',
+              borderColor: statsTab==='vehicle' ? 'var(--blue)' : 'var(--gray-300)',
+            }}
+          >🚗 차량별</button>
+          <button
+            onClick={() => setStatsTab('driver')}
+            style={{
+              padding:'6px 16px', borderRadius:'var(--r-sm)', fontSize:13, fontWeight:600,
+              border:'1.5px solid', cursor:'pointer', fontFamily:'inherit',
+              background: statsTab==='driver' ? 'var(--blue)' : 'var(--white)',
+              color: statsTab==='driver' ? 'white' : 'var(--gray-600)',
+              borderColor: statsTab==='driver' ? 'var(--blue)' : 'var(--gray-300)',
+            }}
+          >👤 운전자별</button>
+          <select className="select" style={{ width:'auto', height:34, minWidth:130, fontSize:13 }}
+            value={statsMonth} onChange={e => setStatsMonth(e.target.value)}>
+            <option value="">전체 기간</option>
+            {months.map(m => <option key={m} value={m}>{fmtMonth(m)}</option>)}
+          </select>
+        </div>
+
+        {(() => {
+          const baseRecs = records.filter(r =>
+            r.status === 'done' && (!statsMonth || (r.date||'').startsWith(statsMonth))
+          )
+          const groupKey = statsTab === 'vehicle' ? 'car_num' : 'driver'
+          const groups = baseRecs.reduce((acc, r) => {
+            const k = r[groupKey] || '미입력'
+            if (!acc[k]) acc[k] = { count: 0, km: 0 }
+            acc[k].count++
+            acc[k].km += r.distance || 0
+            return acc
+          }, {})
+          const rows = Object.entries(groups).sort((a,b) => b[1].km - a[1].km)
+          const totalKm = rows.reduce((s,[,v]) => s+v.km, 0)
+          const totalCount = rows.reduce((s,[,v]) => s+v.count, 0)
+
+          return rows.length === 0 ? null : (
+            <div style={{ background:'var(--white)', border:'1px solid var(--gray-200)', borderRadius:'var(--r-lg)', overflow:'hidden', boxShadow:'var(--shadow-sm)' }}>
+              <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+                <thead>
+                  <tr style={{ background:'var(--gray-50)', borderBottom:'1px solid var(--gray-200)' }}>
+                    <th style={{ padding:'10px 16px', textAlign:'left', fontWeight:600, color:'var(--gray-600)' }}>
+                      {statsTab === 'vehicle' ? '차량번호' : '운전자'}
+                    </th>
+                    <th style={{ padding:'10px 16px', textAlign:'right', fontWeight:600, color:'var(--gray-600)' }}>운행 건수</th>
+                    <th style={{ padding:'10px 16px', textAlign:'right', fontWeight:600, color:'var(--gray-600)' }}>주행거리</th>
+                    <th style={{ padding:'10px 16px', textAlign:'right', fontWeight:600, color:'var(--gray-600)' }}>비중</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(([key, val], i) => (
+                    <tr key={key} style={{ borderBottom: i < rows.length-1 ? '1px solid var(--gray-100)' : 'none' }}>
+                      <td style={{ padding:'10px 16px', fontWeight:500 }}>{key}</td>
+                      <td style={{ padding:'10px 16px', textAlign:'right', color:'var(--gray-600)' }}>{val.count}건</td>
+                      <td style={{ padding:'10px 16px', textAlign:'right', fontWeight:600, color:'var(--green)' }}>{fmtNum(val.km)}km</td>
+                      <td style={{ padding:'10px 16px', textAlign:'right', color:'var(--gray-400)' }}>
+                        {totalKm > 0 ? Math.round(val.km / totalKm * 100) : 0}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ borderTop:'2px solid var(--gray-200)', background:'var(--gray-50)' }}>
+                    <td style={{ padding:'10px 16px', fontWeight:700 }}>합계</td>
+                    <td style={{ padding:'10px 16px', textAlign:'right', fontWeight:700 }}>{totalCount}건</td>
+                    <td style={{ padding:'10px 16px', textAlign:'right', fontWeight:700, color:'var(--green)' }}>{fmtNum(totalKm)}km</td>
+                    <td style={{ padding:'10px 16px', textAlign:'right', color:'var(--gray-400)' }}>100%</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )
+        })()}
       </div>
 
       {/* Filters */}
