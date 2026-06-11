@@ -245,7 +245,7 @@ function DepartForm({ addToast, onComplete, driverName }) {
           </div>
         </div>
         <div style={{ padding:'0 1.5rem 1.5rem' }}>
-          <button className="btn btn-primary btn-full" onClick={handleSave} disabled={saving || gpsStatus === 'pending' || (!validGpsDistance && !form.end_km)}>
+          <button className="btn btn-primary btn-full" onClick={handleSave} disabled={saving}>
             {saving ? <><span className="spinner"></span> 저장 중...</> : '🚗 출발 기록 저장'}
           </button>
         </div>
@@ -290,7 +290,11 @@ function ArriveForm({ record, addToast, onDone }) {
   }
 
   const kmDistance = form.end_km !== '' && record.start_km != null &&
-    const kmDistance = form.end_km !== '' && record.start_km != null &&
+    parseFloat(form.end_km) >= record.start_km
+    ? (parseFloat(form.end_km) - record.start_km).toFixed(1)
+    : null
+const validGpsDistance = gpsDistance && parseFloat(gpsDistance) > 0
+    
     parseFloat(form.end_km) >= record.start_km
     ? (parseFloat(form.end_km) - record.start_km).toFixed(1)
     : null
@@ -409,7 +413,7 @@ const validGpsDistance = gpsDistance && parseFloat(gpsDistance) > 0
           </div>
         </div>
         <div style={{ padding:'0 1.5rem 1.5rem' }}>
-          <button className="btn btn-primary btn-full" onClick={handleSave} disabled={saving}>
+          <button className="btn btn-primary btn-full" onClick={handleSave} disabled={saving || gpsStatus === 'pending' || (!validGpsDistance && !form.end_km)}>
             {saving ? <><span className="spinner"></span> 저장 중...</> : '✅ 도착 완료'}
           </button>
         </div>
