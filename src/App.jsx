@@ -125,6 +125,13 @@ function DepartForm({ addToast, onComplete, driverName }) {
   })
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
+  const [vehicles, setVehicles] = useState([])
+
+  useEffect(() => {
+    supabase.from('vehicles').select('car_num').order('car_num').then(({ data }) => {
+      setVehicles(data || [])
+    })
+  }, [])
 
   const set = (k, v) => {
     setForm(p => ({ ...p, [k]: v }))
@@ -199,7 +206,22 @@ function DepartForm({ addToast, onComplete, driverName }) {
               </div>
               <div className="field">
                 <label className="label label-required">차량번호</label>
-                <input type="text" className={ic('car_num')} placeholder="12가 3456" value={form.car_num} onChange={e => set('car_num', e.target.value)} />
+                {vehicles.length > 0 ? (
+                  <select className={ic('car_num').replace('input','select')} value={form.car_num}
+                    onChange={e => set('car_num', e.target.value)}>
+                    <option value="">선택하세요</option>
+                    {vehicles.map(v => <option key={v.car_num} value={v.car_num}>{v.car_num}</option>)}
+                    <option value="__direct__">직접 입력...</option>
+                  </select>
+                ) : (
+                  <input type="text" className={ic('car_num')} placeholder="12가 3456"
+                    value={form.car_num} onChange={e => set('car_num', e.target.value.replace(/\s/g, ''))} />
+                )}
+                {form.car_num === '__direct__' && (
+                  <input type="text" className={ic('car_num')} placeholder="차량번호 직접 입력"
+                    style={{ marginTop:6 }}
+                    onChange={e => set('car_num', e.target.value.replace(/\s/g, ''))} />
+                )}
               </div>
             </div>
             <div className="field">
@@ -766,6 +788,9 @@ function AdminDashboard({ addToast }) {
   const [editRecord, setEditRecord] = useState(null)
   const [statsTab, setStatsTab] = useState('vehicle')
   const [statsMonth, setStatsMonth] = useState(() => new Date().toISOString().substring(0,7))
+  const [adminTab, setAdminTab] = useState('records') // records | vehicles
+  const [vehicleList, setVehicleList] = useState([])
+  const [newCarNum, setNewCarNum] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -780,6 +805,34 @@ function AdminDashboard({ addToast }) {
   }, [addToast])
 
   useEffect(() => { load() }, [load])
+
+  const loadVehicles = useCallback(async () => {
+    const { data } = await supabase.from('vehicles').select('*').order('car_num')
+    setVehicleList(data || [])
+  }, [])
+
+  useEffect(() => { loadVehicles() }, [loadVehicles])
+
+  const handleAddVehicle = async () => {
+    const trimmed = newCarNum.replace(/\s/g, '')
+    if (!trimmed) return
+    const { error } = await supabase.from('vehicles').insert([{ car_num: trimmed }])
+    if (!error) {
+      addToast(`${trimmed} 등록 완료!`, 'success')
+      setNewCarNum('')
+      loadVehicles()
+    } else {
+      addToast('이미 등록된 차량번호입니다.', 'error')
+    }
+  }
+
+  const handleDeleteVehicle = async (id, carNum) => {
+    const { error } = await supabase.from('vehicles').delete().eq('id', id)
+    if (!error) {
+      addToast(`${carNum} 삭제됐습니다.`, 'success')
+      loadVehicles()
+    }
+  }
 
   const filtered = records.filter(r => {
     const q = search.toLowerCase()
@@ -866,6 +919,71 @@ function AdminDashboard({ addToast }) {
         />
       )}
 
+      {/* 관리자 탭 */}
+      <div style={{ display:'flex', gap:8, marginBottom:'1.5rem' }}>
+        <button onClick={() => setAdminTab('records')} style={{
+          padding:'8px 20px', borderRadius:'var(--r-sm)', fontSize:14, fontWeight:600,
+          border:'1.5px solid', cursor:'pointer', fontFamily:'inherit',
+          background: adminTab==='records' ? 'var(--navy)' : 'var(--white)',
+          color: adminTab==='records' ? 'white' : 'var(--gray-600)',
+          borderColor: adminTab==='records' ? 'var(--navy)' : 'var(--gray-300)',
+        }}>📋 운행 기록</button>
+        <button onClick={() => setAdminTab('vehicles')} style={{
+          padding:'8px 20px', borderRadius:'var(--r-sm)', fontSize:14, fontWeight:600,
+          border:'1.5px solid', cursor:'pointer', fontFamily:'inherit',
+          background: adminTab==='vehicles' ? 'var(--navy)' : 'var(--white)',
+          color: adminTab==='vehicles' ? 'white' : 'var(--gray-600)',
+          borderColor: adminTab==='vehicles' ? 'var(--navy)' : 'var(--gray-300)',
+        }}>🚗 차량 관리</button>
+      </div>
+
+      {/* 차량 관리 탭 */}
+      {adminTab === 'vehicles' && (
+        <div>
+          <div className="page-header">
+            <div className="page-title">차량 관리</div>
+            <div className="page-desc">등록된 차량번호를 관리합니다. 직원 출발 입력 시 드롭다운으로 선택됩니다.</div>
+          </div>
+          <div className="card" style={{ marginBottom:'1.5rem' }}>
+            <div className="card-body">
+              <div className="section-label" style={{ marginBottom:10 }}>차량 등록</div>
+              <div style={{ display:'flex', gap:8 }}>
+                <input type="text" className="input" placeholder="차량번호 입력 (예: 84마8179)"
+                  value={newCarNum} onChange={e => setNewCarNum(e.target.value.replace(/ /g, ''))}
+                  onKeyDown={e => e.key === 'Enter' && handleAddVehicle()}
+                  style={{ flex:1 }} />
+                <button className="btn btn-primary" onClick={handleAddVehicle} style={{ whiteSpace:'nowrap' }}>
+                  + 등록
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="card">
+            <div className="card-body">
+              <div className="section-label" style={{ marginBottom:10 }}>등록된 차량 ({vehicleList.length}대)</div>
+              {vehicleList.length === 0 ? (
+                <div className="empty" style={{ padding:'2rem 0' }}>
+                  <div className="empty-text">등록된 차량이 없습니다.</div>
+                </div>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                  {vehicleList.map(v => (
+                    <div key={v.id} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'10px 0', borderBottom:'1px solid var(--gray-100)' }}>
+                      <span style={{ fontWeight:500, fontSize:15 }}>{v.car_num}</span>
+                      <button onClick={() => handleDeleteVehicle(v.id, v.car_num)}
+                        style={{ background:'none', border:'none', cursor:'pointer', color:'var(--gray-400)', fontSize:14, padding:'2px 6px' }}
+                        onMouseOver={e => e.target.style.color='var(--red)'}
+                        onMouseOut={e => e.target.style.color='var(--gray-400)'}>✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {adminTab === 'records' && <>
       <div className="page-header" style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', flexWrap:'wrap', gap:12 }}>
         <div>
           <div className="page-title">운행 기록 현황</div>
@@ -1068,6 +1186,7 @@ function AdminDashboard({ addToast }) {
           )
         })
       )}
+      </>}
     </div>
   )
 }
